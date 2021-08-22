@@ -32,9 +32,9 @@ def get_subgaussian_log_prob(source):
 
 def get_supergaussian_log_prob(source):
     """Supergaussian log probability of a single source.
-    log cosh(u) = log ( (exp(x) + exp(-x)) / 2 )
-                   = log (exp(x) + exp(-x)) - log(2)
-                   = logaddexp(x, -x) - log(2)
+    log cosh(x) = log ( (exp(x) + exp(-x)) / 2 )
+                = log (exp(x) + exp(-x)) - log(2)
+                = logaddexp(x, -x) - log(2)
                    
     https://en.wikipedia.org/wiki/Hyperbolic_functions#Exponential_definitions
     https://en.wikipedia.org/wiki/FastICA#Single_component_extraction
@@ -150,19 +150,46 @@ def update_raw_mixing_matrix(raw_mixing_matrix, signals, get_source_log_prob, lr
     return total_log_likelihood, raw_mixing_matrix + lr * g
 
 
-def main():
-    key = jax.random.PRNGKey(0)
-    num_samples = 1000
-    source_dim = 2
-    signal_dim = 2
+def generate_signal(key, num_samples):
+    """Generate the toy signal from Aapo's tutorial
+    Args
+        key
+        num_samples
+    
+    Returns
+        true_source [num_samples, 2]
+        mixing_matrix [2, 2]
+        signal [num_samples, 2]
+    """
+    dim = 2
 
     # Source
-    low, high = jnp.full((source_dim,), -math.sqrt(3)), jnp.full((source_dim,), math.sqrt(3))
+    low, high = jnp.full((dim,), -math.sqrt(3)), jnp.full((dim,), math.sqrt(3))
     true_source_dist = numpyro.distributions.Independent(
         numpyro.distributions.Uniform(low, high), reinterpreted_batch_ndims=1
     )
     key, subkey = jax.random.split(key)
     true_source = true_source_dist.sample(subkey, (num_samples,))
+
+    # Mixing matrix
+    mixing_matrix = jnp.array([[2, 3], [2, 1]])
+
+    # Observed signal
+    signal = jax.vmap(get_signal, (None, 0), 0)(mixing_matrix, true_source)
+
+    return true_source, mixing_matrix, signal
+
+
+def main():
+    key = jax.random.PRNGKey(0)
+    num_samples = 1000
+    key, subkey = jax.random.split(key)
+    true_source, mixing_matrix, signal = generate_signal(subkey, num_samples)
+    dim = mixing_matrix.shape[0]
+
+    fig, ax = plt.subplots(1, 1)
+    ax.scatter(true_source[:, 0], true_source[:, 1])
+    util.save_fig(fig, "save/true_source.png")
 
     fig, ax = plt.subplots(1, 1)
     ax.scatter(true_source[:, 0], true_source[:, 1])
@@ -193,7 +220,6 @@ def main():
 
     # Optim
     key, subkey = jax.random.split(key)
-    dim = source_dim
     raw_mixing_matrix = jax.random.normal(subkey, (int(dim * (dim - 1) / 2),))
 
     num_iterations = 100
