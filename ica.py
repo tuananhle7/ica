@@ -169,8 +169,7 @@ def generate_signal(key, num_samples):
     true_source_dist = numpyro.distributions.Independent(
         numpyro.distributions.Uniform(low, high), reinterpreted_batch_ndims=1
     )
-    key, subkey = jax.random.split(key)
-    true_source = true_source_dist.sample(subkey, (num_samples,))
+    true_source = true_source_dist.sample(key, (num_samples,))
 
     # Mixing matrix
     mixing_matrix = jnp.array([[2, 3], [2, 1]])
@@ -215,8 +214,7 @@ def ica(key, signal, get_source_log_prob, num_iterations=1000, lr=1e-3):
     util.save_fig(fig, "save/signal_preprocessed.png")
 
     # Optim
-    key, subkey = jax.random.split(key)
-    raw_mixing_matrix = jax.random.normal(subkey, (int(dim * (dim - 1) / 2),))
+    raw_mixing_matrix = jax.random.normal(key, (int(dim * (dim - 1) / 2),))
 
     total_log_likelihoods = []
     raw_mixing_matrices = [raw_mixing_matrix]
