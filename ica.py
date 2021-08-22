@@ -192,16 +192,6 @@ def main():
     util.save_fig(fig, "save/true_source.png")
 
     fig, ax = plt.subplots(1, 1)
-    ax.scatter(true_source[:, 0], true_source[:, 1])
-    util.save_fig(fig, "save/true_source.png")
-
-    # Mixing matrix
-    mixing_matrix = jnp.array([[2, 3], [2, 1]])
-
-    # Observed signal
-    signal = jax.vmap(get_signal, (None, 0), 0)(mixing_matrix, true_source)
-
-    fig, ax = plt.subplots(1, 1)
     ax.scatter(signal[:, 0], signal[:, 1])
     util.save_fig(fig, "save/signal.png")
 
