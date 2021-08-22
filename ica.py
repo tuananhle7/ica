@@ -204,14 +204,31 @@ def preprocess_signal(signal):
 
 
 def ica(key, signal, get_source_log_prob, num_iterations=1000, lr=1e-3):
+    """Gradient-descent based maximum likelihood estimation of the independent component analysis
+    (ICA) model
+
+    Args
+        key (Jax's PRNG key)
+        signal [num_samples, signal_dim]
+        get_source_log_prob [source_dim] -> []
+        num_iterations (int)
+        lr (float)
+    
+    Returns
+        total_log_likelihoods: list of length num_iterations
+        raw_mixing_matrices: list of length (num_iterations + 1)
+        preprocessing_params
+            A [signal_dim, signal_dim]
+            mean [signal_dim]
+
+            where the preprocessed signal is obtained by
+
+            matmul(A, (signal - mean))
+    """
     dim = signal.shape[1]
 
     # Preprocess
     signal_preprocessed, preprocessing_params = preprocess_signal(signal)
-
-    fig, ax = plt.subplots(1, 1)
-    ax.scatter(signal_preprocessed[:, 0], signal_preprocessed[:, 1])
-    util.save_fig(fig, "save/signal_preprocessed.png")
 
     # Optim
     raw_mixing_matrix = jax.random.normal(key, (int(dim * (dim - 1) / 2),))
@@ -250,7 +267,8 @@ def main():
     util.save_fig(fig, "save/total_log_likelihoods.png")
 
     # Print mixing matrix
-    signal_preprocessed, (A, mean) = preprocess_signal(signal)
+    A, mean = preprocessing_params
+    signal_preprocessed, _ = preprocess_signal(signal)
     print(f"Mixing matrix: {jnp.linalg.inv(A) @ get_mixing_matrix(raw_mixing_matrices[-1])}")
     print(f"True mixing matrix: {mixing_matrix}")
 
