@@ -229,47 +229,68 @@ def ica(key, signal, get_source_log_prob, num_iterations=1000, lr=1e-3):
 
 
 def main():
-    num_iterations = 1000
+    num_iterations = 500
     num_samples = 1000
     lr = 1e-3
 
+    # Generate signal
     key = jax.random.PRNGKey(0)
     key, subkey = jax.random.split(key)
     true_source, mixing_matrix, signal = generate_signal(subkey, num_samples)
 
-    fig, ax = plt.subplots(1, 1)
-    ax.scatter(true_source[:, 0], true_source[:, 1])
-    ax.set_xlim(-3, 3)
-    ax.set_ylim(-3, 3)
-    util.save_fig(fig, "save/true_source.png")
-
-    fig, ax = plt.subplots(1, 1)
-    ax.scatter(signal[:, 0], signal[:, 1])
-    util.save_fig(fig, "save/signal.png")
-
+    # Run ICA
     key, subkey = jax.random.split(key)
     total_log_likelihoods, raw_mixing_matrices, preprocessing_params = ica(
         key, signal, get_subgaussian_log_prob, num_iterations=num_iterations, lr=lr
     )
 
+    # Plot likelihoods
     fig, ax = plt.subplots(1, 1)
     ax.plot(total_log_likelihoods)
     util.save_fig(fig, "save/total_log_likelihoods.png")
 
+    # Print mixing matrix
+    signal_preprocessed, (A, mean) = preprocess_signal(signal)
+    print(f"Mixing matrix: {jnp.linalg.inv(A) @ get_mixing_matrix(raw_mixing_matrices[-1])}")
+    print(f"True mixing matrix: {mixing_matrix}")
+
+    # Plot training progress
+    # --Plot pngs
+    scatter_kwargs = {"s": 0.5, "c": "black", "marker": "o"}
+    img_paths = []
     for iteration in np.linspace(0, num_iterations, 11):
-        signal_preprocessed, (A, mean) = preprocess_signal(signal)
         source = jax.vmap(get_source, (0, None), 0)(
             signal_preprocessed, raw_mixing_matrices[int(iteration)]
         )
 
-        fig, ax = plt.subplots(1, 1)
-        ax.scatter(source[:, 0], source[:, 1])
-        ax.set_xlim(-3, 3)
-        ax.set_ylim(-3, 3)
-        util.save_fig(fig, f"save/recovered_source/{int(iteration)}.png")
+        fig, axss = plt.subplots(2, 2, sharex=True, sharey=True)
+        axss[0, 0].scatter(true_source[:, 0], true_source[:, 1], **scatter_kwargs)
+        axss[0, 0].set_title("True source")
+        axss[0, 1].scatter(signal[:, 0], signal[:, 1], **scatter_kwargs)
+        axss[0, 1].set_title("Observed signal")
+        axss[1, 0].scatter(signal_preprocessed[:, 0], signal_preprocessed[:, 1], **scatter_kwargs)
+        axss[1, 0].set_title("PCA of observed signal")
+        axss[1, 1].scatter(source[:, 0], source[:, 1], **scatter_kwargs)
+        axss[1, 1].set_title("Recovered source")
 
-    print(f"Mixing matrix: {jnp.linalg.inv(A) @ get_mixing_matrix(raw_mixing_matrices[-1])}")
-    print(f"True mixing matrix: {mixing_matrix}")
+        # Formatting
+        for ax in axss.flat:
+            ax.set_xlim(-5, 5)
+            ax.set_ylim(-5, 5)
+            ax.tick_params(direction="in")
+
+        # Title
+        fig.suptitle(f"Iteration {int(iteration)}")
+
+        # Save
+        img_path = f"save/ica/{int(iteration)}.png"
+        util.save_fig(
+            fig, img_path, dpi=400, tight_layout_kwargs={"rect": [0, 0, 1, 1.02]},
+        )
+        img_paths.append(img_path)
+
+    # --Make gif
+    util.make_gif(img_paths, "save/ica.gif", 10)
 
 
 if __name__ == "__main__":
