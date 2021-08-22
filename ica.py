@@ -5,6 +5,7 @@ import tqdm
 import numpyro
 import math
 import util
+import numpy as np
 
 
 def get_signal(mixing_matrix, source):
@@ -180,57 +181,101 @@ def generate_signal(key, num_samples):
     return true_source, mixing_matrix, signal
 
 
+def preprocess_signal(signal):
+    """Center and whiten the signal
+    x_preprocessed = A @ (x - mean)
+
+    Args
+        signal [num_samples, signal_dim]
+    
+    Returns
+        signal_preprocessed [num_samples, signal_dim]
+        preprocessing_params
+            A [signal_dim, signal_dim]
+            mean [signal_dim]
+    """
+    mean = jnp.mean(signal, axis=0)
+    signal_centered = signal - jnp.mean(signal, axis=0)
+
+    signal_cov = jnp.mean(jax.vmap(jnp.outer, (0, 0), 0)(signal_centered, signal_centered), axis=0)
+    eigenvalues, eigenvectors = jnp.linalg.eigh(signal_cov)
+    A = jnp.diag(eigenvalues ** (-1 / 2)) @ eigenvectors.T
+
+    return jax.vmap(jnp.matmul, (None, 0), 0)(A, signal_centered), (A, mean)
+    # else:
+    #     A, mean = preprocessing_params
+    #     signal_centered = signal - mean
+    #     return jax.vmap(jnp.matmul, (None, 0), 0)(A, signal_centered), (A, mean)
+
+
+def ica(key, signal, get_source_log_prob, num_iterations=1000, lr=1e-3):
+    dim = signal.shape[1]
+
+    # Preprocess
+    signal_preprocessed, preprocessing_params = preprocess_signal(signal)
+
+    fig, ax = plt.subplots(1, 1)
+    ax.scatter(signal_preprocessed[:, 0], signal_preprocessed[:, 1])
+    util.save_fig(fig, "save/signal_preprocessed.png")
+
+    # Optim
+    key, subkey = jax.random.split(key)
+    raw_mixing_matrix = jax.random.normal(subkey, (int(dim * (dim - 1) / 2),))
+
+    total_log_likelihoods = []
+    raw_mixing_matrices = [raw_mixing_matrix]
+    for _ in tqdm.tqdm(range(num_iterations)):
+        total_log_likelihood, raw_mixing_matrix = update_raw_mixing_matrix(
+            raw_mixing_matrix, signal_preprocessed, get_source_log_prob, lr
+        )
+        total_log_likelihoods.append(total_log_likelihood.item())
+        raw_mixing_matrices.append(raw_mixing_matrix)
+
+    return total_log_likelihoods, raw_mixing_matrices, preprocessing_params
+
+
 def main():
-    key = jax.random.PRNGKey(0)
+    num_iterations = 1000
     num_samples = 1000
+    lr = 1e-3
+
+    key = jax.random.PRNGKey(0)
     key, subkey = jax.random.split(key)
     true_source, mixing_matrix, signal = generate_signal(subkey, num_samples)
-    dim = mixing_matrix.shape[0]
 
     fig, ax = plt.subplots(1, 1)
     ax.scatter(true_source[:, 0], true_source[:, 1])
+    ax.set_xlim(-3, 3)
+    ax.set_ylim(-3, 3)
     util.save_fig(fig, "save/true_source.png")
 
     fig, ax = plt.subplots(1, 1)
     ax.scatter(signal[:, 0], signal[:, 1])
     util.save_fig(fig, "save/signal.png")
 
-    # Preprocess
-    signal_centered = signal - jnp.mean(signal, axis=0)
-
-    signal_cov = jnp.mean(jax.vmap(jnp.outer, (0, 0), 0)(signal_centered, signal_centered), axis=0)
-    eigenvalues, eigenvectors = jnp.linalg.eigh(signal_cov)
-    signal_whitened = jax.vmap(jnp.matmul, (None, 0), 0)(
-        jnp.diag(eigenvalues ** (-1 / 2)) @ eigenvectors.T, signal_centered
-    )
-
-    fig, ax = plt.subplots(1, 1)
-    ax.scatter(signal_whitened[:, 0], signal_whitened[:, 1])
-    util.save_fig(fig, "save/signal_whitened.png")
-
-    # Optim
     key, subkey = jax.random.split(key)
-    raw_mixing_matrix = jax.random.normal(subkey, (int(dim * (dim - 1) / 2),))
-
-    num_iterations = 100
-    total_log_likelihoods = []
-    raw_mixing_matrices = [raw_mixing_matrix]
-    for _ in tqdm.tqdm(range(num_iterations)):
-        total_log_likelihood, raw_mixing_matrix = update_raw_mixing_matrix(
-            raw_mixing_matrix, signal_whitened, get_subgaussian_log_prob
-        )
-        total_log_likelihoods.append(total_log_likelihood.item())
-        raw_mixing_matrices.append(raw_mixing_matrix)
+    total_log_likelihoods, raw_mixing_matrices, preprocessing_params = ica(
+        key, signal, get_subgaussian_log_prob, num_iterations=num_iterations, lr=lr
+    )
 
     fig, ax = plt.subplots(1, 1)
     ax.plot(total_log_likelihoods)
     util.save_fig(fig, "save/total_log_likelihoods.png")
 
-    source = jax.vmap(get_source, (0, None), 0)(signal_whitened, raw_mixing_matrix)
-    fig, ax = plt.subplots(1, 1)
-    ax.scatter(source[:, 0], source[:, 1])
-    util.save_fig(fig, "save/recovered_source.png")
-    print(f"Mixing matrix: {get_mixing_matrix(raw_mixing_matrix)}")
+    for iteration in np.linspace(0, num_iterations, 11):
+        signal_preprocessed, (A, mean) = preprocess_signal(signal)
+        source = jax.vmap(get_source, (0, None), 0)(
+            signal_preprocessed, raw_mixing_matrices[int(iteration)]
+        )
+
+        fig, ax = plt.subplots(1, 1)
+        ax.scatter(source[:, 0], source[:, 1])
+        ax.set_xlim(-3, 3)
+        ax.set_ylim(-3, 3)
+        util.save_fig(fig, f"save/recovered_source/{int(iteration)}.png")
+
+    print(f"Mixing matrix: {jnp.linalg.inv(A) @ get_mixing_matrix(raw_mixing_matrices[-1])}")
+    print(f"True mixing matrix: {mixing_matrix}")
 
 
 if __name__ == "__main__":
