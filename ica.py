@@ -202,10 +202,6 @@ def preprocess_signal(signal):
     A = jnp.diag(eigenvalues ** (-1 / 2)) @ eigenvectors.T
 
     return jax.vmap(jnp.matmul, (None, 0), 0)(A, signal_centered), (A, mean)
-    # else:
-    #     A, mean = preprocessing_params
-    #     signal_centered = signal - mean
-    #     return jax.vmap(jnp.matmul, (None, 0), 0)(A, signal_centered), (A, mean)
 
 
 def ica(key, signal, get_source_log_prob, num_iterations=1000, lr=1e-3):
