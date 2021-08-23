@@ -1,10 +1,7 @@
 import jax
 import jax.numpy as jnp
-import matplotlib.pyplot as plt
 import tqdm
 import math
-import util
-import numpy as np
 
 
 def get_signal(mixing_matrix, source):
