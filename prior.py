@@ -22,7 +22,7 @@ def get_likelihoods(dist, samples, angles):
                 jax.vmap(jnp.matmul, (None, 0), 0)(get_rotation_matrix(angle), samples)
             ).mean()
         )
-    return log_probs
+    return jnp.stack(log_probs)
 
 
 def get_prob(dist, angle, xy):
@@ -41,6 +41,7 @@ def get_prob(dist, angle, xy):
 if __name__ == "__main__":
     key = jax.random.PRNGKey(0)
 
+    num_angles = 100
     num_points = 1000
     min_point, max_point = -7, 7
     x, y = jnp.meshgrid(
@@ -49,7 +50,7 @@ if __name__ == "__main__":
     )
     xy = jnp.stack([x, y], axis=-1)
 
-    angles = jnp.linspace(0, 2 * math.pi, 100)
+    angles = jnp.linspace(0, 2 * math.pi, num_angles)
     num_samples = 10000
 
     # Create dists
@@ -64,25 +65,25 @@ if __name__ == "__main__":
     )
     key, subkey = jax.random.split(key)
     normal_samples = normal_dist.sample(subkey, (num_samples,))
-    normal_log_probs = get_likelihoods(laplace_dist, normal_samples, angles)
+    neg_normal_log_probs = -get_likelihoods(laplace_dist, normal_samples, angles)
 
     key, subkey = jax.random.split(key)
     laplace_samples = laplace_dist.sample(subkey, (num_samples,))
-    laplace_log_probs = get_likelihoods(laplace_dist, laplace_samples, angles)
+    neg_laplace_log_probs = -get_likelihoods(laplace_dist, laplace_samples, angles)
 
     studentt_dist = numpyro.distributions.Independent(
         numpyro.distributions.StudentT(2, loc, scale), reinterpreted_batch_ndims=1
     )
     key, subkey = jax.random.split(key)
     studentt_samples = studentt_dist.sample(subkey, (num_samples,))
-    studentt_log_probs = get_likelihoods(laplace_dist, studentt_samples, angles)
+    neg_studentt_log_probs = -get_likelihoods(laplace_dist, studentt_samples, angles)
 
     laplace2_dist = numpyro.distributions.Independent(
         numpyro.distributions.Laplace(loc, 2 * scale), reinterpreted_batch_ndims=1
     )
     key, subkey = jax.random.split(key)
     laplace2_samples = laplace2_dist.sample(subkey, (num_samples,))
-    laplace2_log_probs = get_likelihoods(laplace_dist, laplace2_samples, angles)
+    neg_laplace2_log_probs = -get_likelihoods(laplace_dist, laplace2_samples, angles)
 
     # Plotting
     extent = [min_point, max_point, min_point, max_point]
@@ -100,59 +101,61 @@ if __name__ == "__main__":
 
         # MAIN
         ax = ax_main
-        ax.plot(angles, normal_log_probs, label="gaussian", color="tab:blue")
-        ax.scatter(angles[angle_id], normal_log_probs[angle_id], color="tab:blue")
 
-        ax.plot(angles, laplace_log_probs, label="laplace", color="tab:green")
-        ax.scatter(angles[angle_id], laplace_log_probs[angle_id], color="tab:green")
+        ax.plot(angles, neg_laplace2_log_probs, label="laplace2", color="tab:orange")
+        ax.scatter(angles[angle_id], neg_laplace2_log_probs[angle_id], color="tab:orange")
 
-        ax.plot(angles, studentt_log_probs, label="studentt", color="tab:red")
-        ax.scatter(angles[angle_id], studentt_log_probs[angle_id], color="tab:red")
+        ax.plot(angles, neg_studentt_log_probs, label="studentt", color="tab:red")
+        ax.scatter(angles[angle_id], neg_studentt_log_probs[angle_id], color="tab:red")
 
-        ax.plot(angles, laplace2_log_probs, label="laplace2", color="tab:orange")
-        ax.scatter(angles[angle_id], laplace2_log_probs[angle_id], color="tab:orange")
+        ax.plot(angles, neg_laplace_log_probs, label="laplace", color="tab:green")
+        ax.scatter(angles[angle_id], neg_laplace_log_probs[angle_id], color="tab:green")
 
-        ax.set_title("Average likelihood / Cross-entropy")
-        ax.set_ylabel(f"$E_{{p_{{TRUE}}(z | \\theta)}}[\log p_z(z)]$")
-        ax.set_xlabel(f"Angle $\\theta$")
+        ax.plot(angles, neg_normal_log_probs, label="gaussian", color="tab:blue")
+        ax.scatter(angles[angle_id], neg_normal_log_probs[angle_id], color="tab:blue")
+
+        ax.set_title("Cross-entropy between\nthe rotated true distribution and the prior")
+        ax.set_ylabel(f"$E_{{p_{{TRUE}}(z | \\theta)}}[-\log p_z(z)]$")
+        ax.set_xlabel(f"Rotation of true distribution $\\theta$")
         ax.set_yticks([])
         ax.set_xticks([i * math.pi / 4 for i in range(9)])
+        ax.grid(True, axis="x")
         ax.set_xticklabels([f"${i}\pi / 4$" for i in range(9)])
         ax.tick_params(direction="in")
         ax.legend(title=f"$p_{{TRUE}}(z | \\theta)$")
 
         # SIDE
         ax = axs[0]
-        prob = get_prob(normal_dist, angle, xy)
-        ax.imshow(prob, extent=extent, cmap="Blues", vmin=vmin, vmax=vmax)
-        ax.set_title("gaussian")
+        prob = jnp.exp(laplace_dist.log_prob(xy))
+        ax.imshow(prob, extent=extent, cmap="Greys", vmin=vmin, vmax=vmax)
+        ax.set_title(f"$p_z(z)$")
 
-        ax = axs[1]
-        prob = get_prob(laplace_dist, angle, xy)
-        ax.imshow(prob, extent=extent, cmap="Greens", vmin=vmin, vmax=vmax)
-        ax.set_title("laplace")
-
-        ax = axs[2]
-        prob = get_prob(studentt_dist, angle, xy)
-        ax.imshow(prob, extent=extent, cmap="Reds", vmin=vmin, vmax=vmax)
-        ax.set_title("studentt")
-
-        ax = axs[3]
+        ax = axs[-4]
         prob = get_prob(laplace2_dist, angle, xy)
         ax.imshow(prob, extent=extent, cmap="Oranges", vmin=vmin, vmax=vmax)
         ax.set_title("laplace2")
 
+        ax = axs[-3]
+        prob = get_prob(studentt_dist, angle, xy)
+        ax.imshow(prob, extent=extent, cmap="Reds", vmin=vmin, vmax=vmax)
+        ax.set_title("studentt")
+
+        ax = axs[-2]
+        prob = get_prob(laplace_dist, angle, xy)
+        ax.imshow(prob, extent=extent, cmap="Greens", vmin=vmin, vmax=vmax)
+        ax.set_title("laplace")
+
         ax = axs[-1]
-        prob = jnp.exp(laplace_dist.log_prob(xy))
-        ax.imshow(prob, extent=extent, cmap="Greys", vmin=vmin, vmax=vmax)
-        ax.set_title(f"$p_z(z)$")
+        prob = get_prob(normal_dist, angle, xy)
+        ax.imshow(prob, extent=extent, cmap="Blues", vmin=vmin, vmax=vmax)
+        ax.set_title("gaussian")
 
         for ax in axs:
             ax.set_xticks([])
             ax.set_yticks([])
 
         path = f"save/prior/pngs/{angle_id}.png"
-        util.save_fig(fig, path)
+        util.save_fig(fig, path, dpi=100)
         paths.append(path)
 
-    util.make_gif(paths, "save/prior/prior.gif", 24)
+    util.make_gif(paths, "save/prior/prior.gif", 12)

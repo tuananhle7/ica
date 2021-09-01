@@ -114,7 +114,7 @@ def main():
         # Save
         img_path = f"save/timeseries/optimization/{int(iteration)}.png"
         util.save_fig(
-            fig, img_path, dpi=400, tight_layout_kwargs={"rect": [0, 0, 1, 1.0]},
+            fig, img_path, dpi=100, tight_layout_kwargs={"rect": [0, 0, 1, 1.0]},
         )
         img_paths.append(img_path)
 
